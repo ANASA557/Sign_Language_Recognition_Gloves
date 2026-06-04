@@ -1,0 +1,105 @@
+const int flexPin = 1;   
+
+// 读取多次平均，减少抖动
+int readFlexAverage(int samples) {
+  long sum = 0;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(flexPin);
+    delay(5);
+  }
+  return sum / samples;
+}
+
+// 采集一段时间内的平均值，作为标定值
+int calibrateValue(const char* message, int seconds) {
+  Serial.println();
+  Serial.println(message);
+  Serial.print("将在 ");
+  Serial.print(seconds);
+  Serial.println(" 秒内开始采样，请保持稳定...");
+
+  for (int i = seconds; i > 0; i--) {
+    Serial.print("倒计时: ");
+    Serial.println(i);
+    delay(1000);
+  }
+
+  Serial.println("开始采样...");
+  
+  long total = 0;
+  const int sampleCount = 50;
+
+  for (int i = 0; i < sampleCount; i++) {
+    int val = readFlexAverage(5);
+    total += val;
+    Serial.print("Sample ");
+    Serial.print(i + 1);
+    Serial.print(": ");
+    Serial.println(val);
+    delay(20);
+  }
+
+  int average = total / sampleCount;
+
+  Serial.print("标定完成，平均值 = ");
+  Serial.println(average);
+  return average;
+}
+
+int straightValue = 0;
+int bendValue = 0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1500);
+
+  analogReadResolution(12);   // 12位，范围0~4095
+
+  Serial.println("=================================");
+  Serial.println(" ESP32-S3 Flex Sensor Auto Calib ");
+  Serial.println("=================================");
+
+  // 第一步：标定伸直值
+  straightValue = calibrateValue("请将柔性传感器保持【伸直】状态", 3);
+
+  // 第二步：标定弯曲值
+  bendValue = calibrateValue("请将柔性传感器保持【最大弯曲】状态", 3);
+
+  // 防止方向反了
+  if (bendValue < straightValue) {
+    int temp = bendValue;
+    bendValue = straightValue;
+    straightValue = temp;
+  }
+
+  Serial.println();
+  Serial.println("========== 标定结果 ==========");
+  Serial.print("Straight Value = ");
+  Serial.println(straightValue);
+  Serial.print("Bend Value     = ");
+  Serial.println(bendValue);
+  Serial.println("=============================");
+  Serial.println();
+  Serial.println("开始实时输出弯曲程度...");
+}
+
+void loop() {
+  int rawValue = readFlexAverage(10);
+
+  float voltage = rawValue * 3.3 / 4095.0;
+
+  int bendPercent = map(rawValue, straightValue, bendValue, 0, 100);
+
+  if (bendPercent < 0) bendPercent = 0;
+  if (bendPercent > 100) bendPercent = 100;
+
+  Serial.print("Raw = ");
+  Serial.print(rawValue);
+  Serial.print("   Voltage = ");
+  Serial.print(voltage, 3);
+  Serial.print(" V   Bend = ");
+  Serial.print(bendPercent);
+  Serial.println(" %");
+
+  delay(100);
+}

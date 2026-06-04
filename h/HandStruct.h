@@ -10,7 +10,6 @@
 //陀螺仪最大数为5.00
 //必须必须！没有数值检测。
 
-
 struct HandStruct {
     int time;
     int finger1;//大拇指

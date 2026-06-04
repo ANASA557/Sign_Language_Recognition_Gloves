@@ -1,0 +1,136 @@
+#define FLEX_PIN 1
+
+const float ADC_MAX = 4095.0;
+const float VREF = 3.3;
+
+float voltageStraight = -99.0;   // 伸直最大
+float voltageBent = 99.0;        // 弯曲最小
+
+bool calibrated = false;
+
+// 打印节流用
+unsigned long lastPrint = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  // ------------------------
+  // 启动等待 5 秒
+  // ------------------------
+  Serial.println("启动准备，5 秒后开始采集伸直...");
+  waitSeconds(5);
+
+  // ------------------------
+  // 采集伸直（2秒）
+  // ------------------------
+  Serial.println("\n请保持手指【伸直】，采集 2 秒...");
+  calibrateStraight();
+  Serial.print("伸直最大电压：");
+  Serial.println(voltageStraight, 3);
+
+  // ------------------------
+  // 等待 5 秒
+  // ------------------------
+  Serial.println("\n请准备弯曲，5 秒后开始采集最大弯曲...");
+  waitSeconds(5);
+
+  // ------------------------
+  // 采集最大弯曲（2秒）
+  // ------------------------
+  Serial.println("\n请将手指【最大弯曲】，采集 2 秒...");
+  calibrateBent();
+  Serial.print("弯曲最小电压：");
+  Serial.println(voltageBent, 3);
+
+  Serial.println("\n===== 校准完成，进入高速采样模式 =====\n");
+  calibrated = true;
+}
+
+void loop() {
+  if (!calibrated) return;
+
+  // 快速采样
+  int adc = analogRead(FLEX_PIN);
+  float voltage = adc * (VREF / ADC_MAX);
+
+  int percent = getBendPercent(voltage);
+  int level = getBendLevel(percent);
+
+  // 每 50ms 打印一次（20Hz 打印，采样可达数百 Hz）
+  if (millis() - lastPrint > 50) {
+    lastPrint = millis();
+
+    Serial.print("V: ");
+    Serial.print(voltage, 3);
+    Serial.print("  %: ");
+    Serial.print(percent);
+    Serial.print("  L: ");
+    Serial.println(level);
+  }
+
+  // 没有 delay → 高速运行
+}
+
+//==============================
+// 等待倒计时
+//==============================
+void waitSeconds(int sec) {
+  for (int i = sec; i >= 1; i--) {
+    Serial.print("倒计时：");
+    Serial.print(i);
+    Serial.println(" 秒");
+    delay(1000);
+  }
+}
+
+//==============================
+// 伸直校准（2秒记录最大电压）
+//==============================
+void calibrateStraight() {
+  voltageStraight = -99.0;
+  unsigned long start = millis();
+  while (millis() - start < 2000) {
+    float v = analogRead(FLEX_PIN) * (VREF / ADC_MAX);
+    if (v > voltageStraight) voltageStraight = v;
+    // 无 delay → 高速采样
+  }
+}
+
+//==============================
+// 弯曲校准（2秒记录最小电压）
+//==============================
+void calibrateBent() {
+  voltageBent = 99.0;
+  unsigned long start = millis();
+  while (millis() - start < 2000) {
+    float v = analogRead(FLEX_PIN) * (VREF / ADC_MAX);
+    if (v < voltageBent) voltageBent = v;
+  }
+}
+
+//==============================
+// 百分比（弯曲时电压下降）
+//==============================
+int getBendPercent(float voltage) {
+  if (fabs(voltageStraight - voltageBent) < 0.01) return 0;
+
+  float percent = (voltageStraight - voltage) * 100.0 /
+                  (voltageStraight - voltageBent);
+  percent = constrain(percent, 0, 100);
+
+  return (int)percent;
+}
+
+//==============================
+// 五级弯曲
+//==============================
+int getBendLevel(int percent) {
+  if (percent < 20) return 0;
+  if (percent < 40) return 1;
+  if (percent < 60) return 2;
+  if (percent < 80) return 3;
+  return 4;
+}
